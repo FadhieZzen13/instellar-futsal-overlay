@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Futsal Control</title>
+<!-- Futsal controller: teams, goals (with goal animation), clock, half, reset. Sends to server.js; the display updates live. -->
+<style>
+  :root { --bg: #0d131b; --panel: #151d28; --line: #263243; --text: #e8eef6; --dim: #8796aa; --blue: #278AE4; --red: #89302E; --green: #2fa36b; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, sans-serif; padding: 18px; max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 18px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+  #conn { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: #3a1d1d; color: #ff9a9a; }
+  #conn.on { background: #173526; color: #7fe0a8; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  h2 { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); margin-bottom: 12px; }
+  label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+  input, select, button { font: inherit; color: inherit; }
+  input[type=text], input[type=number], select { background: #0a0f15; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; width: 100%; min-width: 0; }
+  input[type=color] { width: 44px; height: 38px; border: 1px solid var(--line); border-radius: 6px; background: #0a0f15; padding: 2px; }
+  button { background: #223044; border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; cursor: pointer; font-weight: 600; }
+  button:hover { filter: brightness(1.2); }
+  .grid { display: grid; gap: 12px; }
+  .teams { grid-template-columns: 1fr auto 1fr; align-items: end; }
+  .row { display: flex; gap: 8px; align-items: end; }
+  .row > div { flex: 1; min-width: 0; }
+  .score { grid-template-columns: 1fr 1fr; }
+  .side { border: 1px solid var(--line); border-radius: 10px; padding: 14px; border-top: 6px solid var(--c, var(--blue)); }
+  .side .name { font-weight: 800; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side .campus { color: var(--dim); font-size: 12px; margin-bottom: 8px; }
+  .side .num { font-size: 64px; font-weight: 800; line-height: 1; margin: 6px 0 12px; font-variant-numeric: tabular-nums; }
+  .goal { width: 100%; background: var(--green); border-color: transparent; font-size: 20px; padding: 14px; margin-top: 8px; }
+  .minus { margin-top: 8px; width: 100%; background: transparent; }
+  .clockbox { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; }
+  #time { font-size: 64px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 230px; }
+  #time.up { color: #ff7a7a; }
+  #startstop { background: var(--green); border-color: transparent; font-size: 18px; padding: 12px 24px; }
+  #startstop.running { background: #b5832a; }
+  .halves button.on { background: var(--blue); border-color: transparent; }
+  .danger { background: #5a1f1f; border-color: #7a2c2c; }
+  .muted { color: var(--dim); font-size: 12px; margin-top: 10px; }
+  @media (max-width: 700px) { .teams { grid-template-columns: 1fr; } .clockbox { grid-template-columns: 1fr; } #time { font-size: 52px; } }
+</style>
+</head>
+<body>
+<h1>Futsal control <span id="conn">offline</span></h1>
+
+<section>
+  <h2>Match</h2>
+  <div class="grid teams">
+    <div class="row"><div><label for="teamA">Team A (left)</label><select id="teamA"></select></div><input type="color" id="colA" aria-label="Team A colour"></div>
+    <button id="swap" title="Swap sides">⇄</button>
+    <div class="row"><div><label for="teamB">Team B (right)</label><select id="teamB"></select></div><input type="color" id="colB" aria-label="Team B colour"></div>
+  </div>
+  <div class="grid" style="grid-template-columns: 2fr 1fr 1fr; margin-top: 12px">
+    <div><label for="label">Stage title (shown under the scoreboard, empty = hidden)</label><input type="text" id="label" placeholder="e.g. Group A · Match 3"></div>
+    <div><label for="halfMin">Minutes per half</label><input type="number" id="halfMin" min="1" max="45"></div>
+    <div><label for="dir">Clock</label><select id="dir"><option value="down">Counts down</option><option value="up">Counts up</option></select></div>
+  </div>
+</section>
+
+<section>
+  <h2>Score</h2>
+  <div class="grid score">
+    <div class="side" id="sideA">
+      <div class="name"></div><div class="campus"></div>
+      <div class="num">0</div>
+      <button class="goal" data-t="0">GOAL (A)</button>
+      <button class="minus" data-t="0">−1 (no animation)</button>
+    </div>
+    <div class="side" id="sideB">
+      <div class="name"></div><div class="campus"></div>
+      <div class="num">0</div>
+      <button class="goal" data-t="1">GOAL (L)</button>
+      <button class="minus" data-t="1">−1 (no animation)</button>
+    </div>
+  </div>
+  <div class="row" style="margin-top: 12px"><button id="replay">Replay last goal animation</button></div>
+</section>
+
+<section>
+  <h2>Clock &amp; half</h2>
+  <div class="clockbox">
+    <div id="time">20:00</div>
+    <div>
+      <div class="row">
+        <button id="startstop">Start (space)</button>
+        <button data-adj="-60">−1:00</button><button data-adj="-10">−0:10</button><button data-adj="-1">−0:01</button>
+        <button data-adj="1">+0:01</button><button data-adj="10">+0:10</button><button data-adj="60">+1:00</button>
+      </div>
+      <div class="row" style="margin-top: 10px">
+        <div style="max-width: 140px"><label for="setTime">Set clock to (mm:ss)</label><input type="text" id="setTime" placeholder="12:30"></div>
+        <button id="setBtn">Set</button>
+        <button id="resetClock">Reset clock</button>
+      </div>
+    </div>
+  </div>
+  <div class="row halves" style="margin-top: 14px">
+    <button data-half="1">1st half</button>
+    <button data-half="2">2nd half</button>
+    <button id="nextHalf">Go to 2nd half (resets clock)</button>
+  </div>
+</section>
+
+<section>
+  <h2>Reset</h2>
+  <button id="resetMatch" class="danger">Reset match (score 0-0, 1st half, clock reset)</button>
+  <p class="muted">Keys: A = goal Team A, L = goal Team B, Space = start/pause clock. Teams and stage title stay after a reset.</p>
+</section>
+
+<script src="teams.js"></script>
+<script>
+  const $ = id => document.getElementById(id);
+  const TEAMS = window.FUTSAL_TEAMS;
+  const team = id => TEAMS.find(t => t.id === id) || TEAMS[0];
+  const KEY = 'instellar-futsal';
+
+  function fresh() {
+    return { teams: [TEAMS[0].id, TEAMS[1].id], colors: ['#278AE4', '#89302E'], score: [0, 0], half: 1, label: '',
+             settings: { halfMin: 20, dir: 'down' }, goals: [], goal: { seq: 0, team: 0 } };
+  }
+  let m = null, clock = { running: false, base: 0, since: 0 }, offset = 0;
+  try { m = JSON.parse(localStorage.getItem(KEY)); } catch (_) {}
+
+  // ---- sending
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(m)); } catch (_) {}
+    fetch('/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(m) }).catch(() => {});
+    draw();
+  }
+  const clockCmd = (action, ms) => fetch('/clock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ms }) }).catch(() => {});
+  const elapsed = () => clock.base + (clock.running ? Date.now() + offset - clock.since : 0);
+
+  // ---- actions
+  function goal(t) {
+    m.score[t]++;
+    m.goals.push({ team: t, half: m.half, ms: elapsed() });
+    m.goal = { seq: m.goal.seq + 1, team: t };
+    save();
+  }
+  function minus(t) {
+    if (!m.score[t]) return;
+    m.score[t]--;
+    for (let i = m.goals.length - 1; i >= 0; i--) if (m.goals[i].team === t) { m.goals.splice(i, 1); break; }
+    save();
+  }
+  function replay() {
+    if (!m.goals.length) return;
+    const g = m.goals[m.goals.length - 1];
+    m.goal = { seq: m.goal.seq + 1, team: g.team };
+    save();
+  }
+  const halfMs = () => m.settings.halfMin * 60000;
+  // the clock shows remaining time when counting down, so convert shown time <-> elapsed
+  const shownToElapsed = ms => m.settings.dir === 'down' ? halfMs() - ms : ms;
+  function adjust(sec) {
+    const shown = m.settings.dir === 'down' ? halfMs() - elapsed() : elapsed();
+    clockCmd('set', shownToElapsed(Math.max(0, shown + sec * 1000)));
+  }
+
+  // ---- drawing
+  function fillTeamSelect(sel) { sel.innerHTML = TEAMS.map(t => `<option value="${t.id}">${t.name} · ${t.campus}</option>`).join(''); }
+  function draw() {
+    ['A', 'B'].forEach((s, i) => {
+      const t = team(m.teams[i]);
+      $('team' + s).value = t.id; $('col' + s).value = m.colors[i];
+      const side = $('side' + s);
+      side.style.setProperty('--c', m.colors[i]);
+      side.querySelector('.name').textContent = t.name;
+      side.querySelector('.campus').textContent = t.campus;
+      side.querySelector('.num').textContent = m.score[i];
+    });
+    if (document.activeElement !== $('label')) $('label').value = m.label;
+    $('halfMin').value = m.settings.halfMin; $('dir').value = m.settings.dir;
+    document.querySelectorAll('[data-half]').forEach(b => b.classList.toggle('on', +b.dataset.half === m.half));
+  }
+  function tick() {
+    if (!m) return;
+    const e = elapsed(), down = m.settings.dir === 'down';
+    const shown = down ? Math.max(0, halfMs() - e) : e;
+    const s = Math.ceil(shown / 1000 - (down ? 0 : 0.999));   // count down rounds up, count up rounds down
+    $('time').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    $('time').classList.toggle('up', down ? shown <= 0 : e >= halfMs());
+    $('startstop').textContent = clock.running ? 'Pause (space)' : 'Start (space)';
+    $('startstop').classList.toggle('running', clock.running);
+  }
+
+  // ---- wiring
+  fillTeamSelect($('teamA')); fillTeamSelect($('teamB'));
+  $('teamA').onchange = e => { m.teams[0] = e.target.value; save(); };
+  $('teamB').onchange = e => { m.teams[1] = e.target.value; save(); };
+  $('colA').onchange = e => { m.colors[0] = e.target.value; save(); };
+  $('colB').onchange = e => { m.colors[1] = e.target.value; save(); };
+  $('swap').onclick = () => {
+    m.teams.reverse(); m.colors.reverse(); m.score.reverse();
+    m.goals.forEach(g => g.team = 1 - g.team); m.goal.team = 1 - m.goal.team;
+    save();
+  };
+  $('label').oninput = e => { m.label = e.target.value; save(); };
+  $('halfMin').onchange = e => { m.settings.halfMin = Math.max(1, Math.min(45, +e.target.value || 20)); save(); };
+  $('dir').onchange = e => { m.settings.dir = e.target.value; save(); };
+  document.querySelectorAll('.goal').forEach(b => b.onclick = () => goal(+b.dataset.t));
+  document.querySelectorAll('.minus').forEach(b => b.onclick = () => minus(+b.dataset.t));
+  $('replay').onclick = replay;
+  $('startstop').onclick = () => clockCmd(clock.running ? 'pause' : 'start');
+  document.querySelectorAll('[data-adj]').forEach(b => b.onclick = () => adjust(+b.dataset.adj));
+  $('setBtn').onclick = () => {
+    const [mm, ss] = $('setTime').value.split(':').map(Number);
+    if (isNaN(mm)) return;
+    clockCmd('set', shownToElapsed(((mm || 0) * 60 + (ss || 0)) * 1000));
+  };
+  $('resetClock').onclick = () => { clockCmd('pause'); clockCmd('set', 0); };
+  document.querySelectorAll('[data-half]').forEach(b => b.onclick = () => { m.half = +b.dataset.half; save(); });
+  $('nextHalf').onclick = () => { m.half = 2; save(); clockCmd('pause'); clockCmd('set', 0); };
+  $('resetMatch').onclick = () => {
+    if (!confirm('Reset the match? Score goes to 0-0, 1st half, clock reset.')) return;
+    const keep = { teams: m.teams, colors: m.colors, label: m.label, settings: m.settings, seq: m.goal.seq };
+    m = { ...fresh(), teams: keep.teams, colors: keep.colors, label: keep.label, settings: keep.settings };
+    m.goal.seq = keep.seq;   // keep counting up so the display never replays an old goal
+    save(); clockCmd('pause'); clockCmd('set', 0);
+  };
+  document.addEventListener('keydown', e => {
+    if (e.target.closest('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'a') goal(0);
+    else if (k === 'l') goal(1);
+    else if (k === ' ') { e.preventDefault(); $('startstop').click(); }
+  });
+
+  // ---- live link: follow other controllers; if the server has nothing (restarted), send ours back
+  let first = true;
+  const es = new EventSource('/events');
+  es.onopen = () => { $('conn').classList.add('on'); $('conn').textContent = 'live'; };
+  es.onerror = () => { $('conn').classList.remove('on'); $('conn').textContent = 'offline'; };
+  es.onmessage = e => {
+    $('conn').classList.add('on'); $('conn').textContent = 'live';
+    const s = JSON.parse(e.data);
+    if (!s) { if (first) { m = m || fresh(); save(); } first = false; return; }
+    clock = s.clock; offset = s.now - Date.now();
+    delete s.clock; delete s.now;
+    if (first || JSON.stringify(s) !== JSON.stringify(m)) { m = s; try { localStorage.setItem(KEY, JSON.stringify(m)); } catch (_) {} draw(); }
+    first = false;
+  };
+  m = m || fresh(); draw();
+  setInterval(tick, 200); tick();
+</script>
+</body>
+</html>

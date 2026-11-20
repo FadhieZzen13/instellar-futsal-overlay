@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Futsal Scoreboard, Instellar</title>
+<!-- Futsal score overlay. 1920x1080 OBS browser source, transparent. Everything comes from futsalcontrol.html through server.js. -->
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@500;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #4D2224; --cream: #FFF8EC; --yellow: #FFD600; --a: #278AE4; --b: #89302E; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: transparent; }
+  body { width: 1920px; height: 1080px; overflow: hidden; position: relative; font-family: 'Roboto Slab', Georgia, serif; color: var(--ink); }
+
+  /* ---------- scorebug ---------- */
+  #board { position: absolute; left: 40px; top: 36px; display: flex; flex-direction: column; align-items: center; }
+  #bug { position: relative; z-index: 1; display: flex; align-items: stretch; height: 76px; border-radius: 16px; overflow: hidden; background: #fff; box-shadow: 0 10px 26px rgba(40, 10, 10, .28); }
+  .team { display: flex; align-items: center; gap: 14px; padding: 0 20px; width: 230px; position: relative; }
+  .team.a { border-left: 10px solid var(--a); }
+  .team.b { border-right: 10px solid var(--b); flex-direction: row-reverse; }
+  .team .short { overflow: hidden; text-overflow: ellipsis; }
+  .team .short { font-weight: 900; font-size: 32px; letter-spacing: 1px; white-space: nowrap; }
+  .crest { width: 54px; height: 54px; flex: none; display: flex; align-items: center; justify-content: center; }
+  .crest img { max-width: 100%; max-height: 100%; }
+  .crest .ini { width: 54px; height: 54px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 900; font-size: 20px; }
+  .num { width: 76px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 900; font-size: 48px; font-variant-numeric: tabular-nums; }
+  .num.a { background: var(--a); } .num.b { background: var(--b); }
+  .num span { display: inline-block; }
+  .num span.pop { animation: pop .7s cubic-bezier(.2, 1.6, .4, 1); }
+  @keyframes pop { 0% { transform: scale(.3); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+  /* clock sits under the scores, like a tab */
+  .clock { display: flex; align-items: center; gap: 14px; padding: 8px 22px 10px; background: var(--ink); color: var(--cream); border-radius: 0 0 14px 14px; box-shadow: 0 10px 22px rgba(40, 10, 10, .25); }
+  #time { font-weight: 800; font-size: 40px; line-height: 1; font-variant-numeric: tabular-nums; }
+  #time.up { color: #ff8b8b; }
+  #half { padding: 3px 10px 4px; border-radius: 6px; background: var(--yellow); color: var(--ink); font-weight: 800; font-size: 14px; letter-spacing: 2px; }
+  #label { margin-top: 8px; padding: 6px 18px 8px; border-radius: 12px; background: var(--cream); font-weight: 800; font-size: 20px; letter-spacing: 2px; text-transform: uppercase; box-shadow: 0 8px 18px rgba(40, 10, 10, .2); }
+  #label:empty { display: none; }
+
+  /* Instellar logo, top right */
+  #brand { position: absolute; right: 40px; top: 36px; height: 76px; padding: 10px 20px; border-radius: 16px; background: var(--ink); box-shadow: 0 10px 26px rgba(40, 10, 10, .28); }
+  #brand img { height: 100%; display: block; }
+
+  /* ---------- goal animation ---------- */
+  #goal { position: absolute; left: 0; right: 0; top: 690px; height: 250px; display: none; }
+  #goal.show { display: block; }
+  #goal .band { position: absolute; inset: 0; background: var(--gc); transform-origin: left; animation: band 5.6s cubic-bezier(.7, 0, .2, 1) both; }
+  #goal .band::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 14px; background: var(--yellow); }
+  @keyframes band { 0% { transform: scaleX(0); } 9% { transform: scaleX(1); } 88% { transform: scaleX(1); transform-origin: right; } 100% { transform: scaleX(0); transform-origin: right; } }
+  #goal .inner { position: absolute; inset: 0 0 14px; display: flex; align-items: center; justify-content: center; gap: 46px; color: #fff; animation: inner 5.6s ease both; }
+  @keyframes inner { 0%, 8% { opacity: 0; transform: translateX(-60px); } 16% { opacity: 1; transform: none; } 84% { opacity: 1; transform: none; } 92%, 100% { opacity: 0; transform: translateX(60px); } }
+  #goal .word { font-weight: 900; font-size: 190px; line-height: 1; letter-spacing: -4px; display: flex; text-shadow: 8px 8px 0 rgba(0, 0, 0, .22); }
+  #goal .word span { display: inline-block; animation: letter .5s cubic-bezier(.2, 1.7, .4, 1) both; }
+  @keyframes letter { 0% { transform: translateY(80px) scale(.4); opacity: 0; } 100% { transform: none; opacity: 1; } }
+  #goal .who { display: flex; align-items: center; gap: 22px; padding-left: 46px; border-left: 6px solid rgba(255, 255, 255, .5); }
+  #goal .crest { width: 130px; height: 130px; padding: 10px; border-radius: 22px; background: #fff; }
+  #goal .crest .ini { width: 100%; height: 100%; font-size: 40px; }
+  #goal .tname { font-weight: 900; font-size: 56px; line-height: 1.05; white-space: nowrap; }
+  #goal .line { margin-top: 10px; display: inline-block; padding: 4px 14px 6px; border-radius: 8px; background: rgba(0, 0, 0, .25); font-weight: 800; font-size: 28px; font-variant-numeric: tabular-nums; }
+
+  @media (prefers-reduced-motion: reduce) { #goal .band, #goal .inner, #goal .word span, .num span.pop { animation-duration: .01s; } }
+</style>
+</head>
+<body>
+<div id="board">
+<div id="bug">
+  <div class="team a"><div class="crest" id="crestA"></div><div class="short" id="shortA"></div></div>
+  <div class="num a"><span id="scoreA">0</span></div>
+  <div class="num b"><span id="scoreB">0</span></div>
+  <div class="team b"><div class="crest" id="crestB"></div><div class="short" id="shortB"></div></div>
+</div>
+<div class="clock"><div id="time">20:00</div><div id="half">BABAK 1</div></div>
+<div id="label"></div>
+</div>
+<div id="brand"><img src="logo.png" alt="Instellar"></div>
+
+<div id="goal" aria-live="polite">
+  <div class="band"></div>
+  <div class="inner">
+    <div class="word" id="goalWord"></div>
+    <div class="who">
+      <div class="crest" id="goalCrest"></div>
+      <div><div class="tname" id="goalTeam"></div><div class="line" id="goalLine"></div></div>
+    </div>
+  </div>
+</div>
+
+<script src="teams.js"></script>
+<script>
+  const $ = id => document.getElementById(id);
+  const TEAMS = window.FUTSAL_TEAMS;
+  const team = id => TEAMS.find(t => t.id === id) || { id: '', name: '?', short: '?' };
+  let m = null, clock = { running: false, base: 0, since: 0 }, offset = 0, lastSeq = null, lastScore = [0, 0];
+
+  // logo from logos/<logo>.png, or a coloured initials badge if that file isn't there
+  function crest(el, t, color) {
+    if (el.dataset.id === t.id && el.dataset.c === color) return;
+    el.dataset.id = t.id; el.dataset.c = color;
+    const ini = () => { el.innerHTML = ''; const d = document.createElement('div'); d.className = 'ini'; d.style.background = color; d.textContent = t.short.replace(/\s.*/, '').slice(0, 3); el.appendChild(d); };
+    const img = new Image();
+    img.alt = t.name; img.onload = () => { el.innerHTML = ''; el.appendChild(img); }; img.onerror = ini;
+    img.src = 'logos/' + (t.logo || t.id) + '.png';
+  }
+
+  function setScore(id, v, i) {
+    const el = $(id);
+    if (el.textContent === String(v)) return;
+    el.textContent = v;
+    if (v > lastScore[i]) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
+    lastScore[i] = v;
+  }
+
+  function draw() {
+    if (!m) return;
+    document.documentElement.style.setProperty('--a', m.colors[0]);
+    document.documentElement.style.setProperty('--b', m.colors[1]);
+    const A = team(m.teams[0]), B = team(m.teams[1]);
+    $('shortA').textContent = A.short; $('shortB').textContent = B.short;
+    crest($('crestA'), A, m.colors[0]); crest($('crestB'), B, m.colors[1]);
+    setScore('scoreA', m.score[0], 0); setScore('scoreB', m.score[1], 1);
+    $('half').textContent = 'BABAK ' + m.half;
+    $('label').textContent = m.label || '';
+  }
+
+  // ---- goal animation: plays when goal.seq goes up (not on first load)
+  let hideTimer = null;
+  function playGoal() {
+    const t = m.goal.team, tm = team(m.teams[t]), color = m.colors[t];
+    const g = $('goal');
+    g.style.setProperty('--gc', color);
+    $('goalWord').innerHTML = [...'GOAL!'].map((c, i) => `<span style="animation-delay:${.45 + i * .07}s">${c}</span>`).join('');
+    const c = $('goalCrest'); delete c.dataset.id; crest(c, tm, color);
+    $('goalTeam').textContent = tm.name;
+    $('goalLine').textContent = `${team(m.teams[0]).short}  ${m.score[0]} – ${m.score[1]}  ${team(m.teams[1]).short}`;
+    g.classList.remove('show'); void g.offsetWidth; g.classList.add('show');
+    clearTimeout(hideTimer); hideTimer = setTimeout(() => g.classList.remove('show'), 5700);
+  }
+
+  // ---- clock, ticking locally from the server's start time
+  function tick() {
+    if (!m) return;
+    const halfMs = m.settings.halfMin * 60000, down = m.settings.dir === 'down';
+    const e = clock.base + (clock.running ? Date.now() + offset - clock.since : 0);
+    const shown = down ? Math.max(0, halfMs - e) : e;
+    const s = down ? Math.ceil(shown / 1000) : Math.floor(shown / 1000);
+    $('time').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    $('time').classList.toggle('up', down ? shown <= 0 : e >= halfMs);
+  }
+
+  new EventSource('/events').onmessage = e => {
+    let s; try { s = JSON.parse(e.data); } catch (_) { return; }
+    if (!s) return;
+    clock = s.clock; offset = s.now - Date.now(); m = s;
+    if (lastSeq === null) lastScore = [...m.score];
+    draw();
+    if (lastSeq !== null && m.goal.seq > lastSeq) playGoal();
+    lastSeq = m.goal.seq;
+    tick();
+  };
+  setInterval(tick, 200);
+</script>
+</body>
+</html>
